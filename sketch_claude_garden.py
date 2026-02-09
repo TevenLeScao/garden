@@ -34,9 +34,9 @@ class Structure:
 PLANT_REGISTRY: Dict[str, Dict] = {
     "grass": {
         "drawer_class": GrassDrawer,
-        "weight": 70,
-        "size_scale": 0.18,  # Small grass clumps, more evenly distributed
-        "draw_params": lambda vsk: {"detail": int(vsk.random(4, 10))},
+        "weight": 55,
+        "size_scale": 0.3,  # Grass is much smaller than other plants
+        "draw_params": lambda vsk: {"detail": int(vsk.random(6, 16))},
     },
     "leafy": {
         "drawer_class": LeafyPlantDrawer,
