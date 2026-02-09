@@ -202,16 +202,27 @@ class LeafyPlantDrawer(PlantDrawer):
     def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
         """Draw a leafy plant. detail = leaf count."""
         stem_height = size * 0.8
-        stem_curve = self.vsk.random(-0.15, 0.15) + angle * 0.3 + self.wind * 0.3
-        stem_top_x = x + stem_curve * size * 0.4
+        stem_curve_factor = self.vsk.random(-0.15, 0.15) + angle * 0.3 + self.wind * 0.3
+        stem_top_x = x + stem_curve_factor * size * 0.4
         stem_top_y = y - stem_height
 
-        self._draw_curved_stem(x, y, stem_top_x, stem_top_y, self.stem_width * size)
+        # Compute curve control point for stem (same logic as _draw_curved_stem)
+        dx, dy = stem_top_x - x, stem_top_y - y
+        length = math.sqrt(dx*dx + dy*dy) + 0.001
+        curve_amount = self.vsk.random(-0.3, 0.3) * length + self.wind * length * 0.2
+        mid_x = (x + stem_top_x) / 2 + (-dy / length) * curve_amount
+        mid_y = (y + stem_top_y) / 2 + (dx / length) * curve_amount
+
+        # Draw the curved stem (uses same random state, so we reseed for consistency)
+        self._draw_curved_stem_with_control(x, y, stem_top_x, stem_top_y, mid_x, mid_y, self.stem_width * size)
 
         for i in range(detail):
             t = (i + 1) / (detail + 1)
-            leaf_x = x + stem_curve * t * size * 0.4
-            leaf_y = y - stem_height * t
+            # Place leaves along the curved stem (quadratic bezier)
+            t1 = 1 - t
+            leaf_x = t1**2 * x + 2*t1*t * mid_x + t**2 * stem_top_x
+            leaf_y = t1**2 * y + 2*t1*t * mid_y + t**2 * stem_top_y
+
             side = 1 if i % 2 == 0 else -1
             leaf_size = size * 0.25 * (1 - t * 0.4)
             # Base angle: right-pointing leaves ~50°, left-pointing leaves ~130° (π - 50°)
@@ -222,21 +233,33 @@ class LeafyPlantDrawer(PlantDrawer):
 
             self._draw_serrated_leaf(leaf_x, leaf_y, leaf_size, leaf_angle)
 
-    def _draw_curved_stem(self, x1: float, y1: float, x2: float, y2: float,
-                          width: float) -> None:
-        """Draw stem as two parallel curves."""
-        steps = 5
+    def _draw_curved_stem_with_control(self, x1: float, y1: float, x2: float, y2: float,
+                                        mid_x: float, mid_y: float, width: float) -> None:
+        """Draw stem as a curved tapered shape using a quadratic bezier control point."""
+        steps = 8
         left_curve = []
         right_curve = []
 
-        dx, dy = x2 - x1, y2 - y1
-        length = math.sqrt(dx*dx + dy*dy) + 0.001
-        nx, ny = -dy/length, dx/length
-
         for i in range(steps + 1):
             t = i / steps
-            px = x1 + dx * t
-            py = y1 + dy * t
+            t1 = 1 - t
+            # Quadratic bezier curve through control point
+            px = t1**2 * x1 + 2*t1*t * mid_x + t**2 * x2
+            py = t1**2 * y1 + 2*t1*t * mid_y + t**2 * y2
+
+            # Compute tangent direction for perpendicular offset
+            if i < steps:
+                t_next = (i + 1) / steps
+                t1_next = 1 - t_next
+                px_next = t1_next**2 * x1 + 2*t1_next*t_next * mid_x + t_next**2 * x2
+                py_next = t1_next**2 * y1 + 2*t1_next*t_next * mid_y + t_next**2 * y2
+                tdx, tdy = px_next - px, py_next - py
+            else:
+                tdx, tdy = x2 - mid_x, y2 - mid_y
+
+            tlen = math.sqrt(tdx*tdx + tdy*tdy) + 0.001
+            nx, ny = -tdy/tlen, tdx/tlen
+
             w = width * (1 - t * 0.4) / 2
 
             left_curve.append((px + nx * w, py + ny * w))
