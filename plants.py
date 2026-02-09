@@ -111,8 +111,12 @@ class GrassDrawer(PlantDrawer):
         self.grass_curve = grass_curve
 
     def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
-        """Draw a clump of grass blades. detail = blade count."""
-        for _ in range(detail):
+        """Draw a clump of grass blades. detail = base blade count, scaled by size."""
+        # Scale blade count with size - smaller grass gets fewer blades
+        # Reference size ~1.5 (typical grass size with size_scale=0.3 and plant_size=5)
+        size_factor = max(0.3, size / 1.5)
+        blade_count = max(2, int(detail * size_factor))
+        for _ in range(blade_count):
             blade_x = x + self.vsk.random(-0.3, 0.3) * size * 0.3
             blade_height = size * self.vsk.random(0.6, 1.0)
             curve_dir = self.vsk.random(-1, 1) + angle * 2 + self.wind * 1.5
