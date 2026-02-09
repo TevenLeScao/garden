@@ -85,7 +85,6 @@ class ClaudeGardenSketch(vsketch.SketchClass):
     structure_count = vsketch.Param(10, min_value=0, max_value=30)
     structure_size = vsketch.Param(6.0, min_value=1.0, max_value=15.0, step=0.5)
     structure_size_variance = vsketch.Param(0.7, min_value=0.0, max_value=1.0, step=0.05)
-    light_angle = vsketch.Param(0.5, min_value=-3.14, max_value=3.14, step=0.1)
     hatch_spacing = vsketch.Param(0.25, min_value=0.1, max_value=0.5, step=0.02)
 
     # === Style ===
@@ -96,6 +95,11 @@ class ClaudeGardenSketch(vsketch.SketchClass):
         vsk.scale("cm")
 
         width, height = self._get_drawing_area(vsk)
+
+        # Generate random light source position (can be inside or outside canvas)
+        # Range extends beyond canvas by 50% on each side
+        self.light_x = vsk.random(-width * 0.5, width * 1.5)
+        self.light_y = vsk.random(-height * 0.5, height * 1.5)
 
         # Create all drawers
         plant_drawers = self._create_plant_drawers(vsk)
@@ -151,9 +155,9 @@ class ClaudeGardenSketch(vsketch.SketchClass):
             drawer_class = config["drawer_class"]
             if drawer_class == GrassDrawer:
                 grass_curve = 0.5 + self.wind * 0.3
-                drawers[name] = drawer_class(vsk, self.use_occlusion, 0.05, grass_curve, self.wind)
+                drawers[name] = drawer_class(vsk, 0.05, grass_curve, self.wind)
             else:
-                drawers[name] = drawer_class(vsk, self.use_occlusion, 0.03, self.wind)
+                drawers[name] = drawer_class(vsk, 0.03, self.wind)
         return drawers
 
     def _create_structure_drawers(self, vsk: vsketch.Vsketch) -> Dict[str, StructureDrawer]:
@@ -161,7 +165,7 @@ class ClaudeGardenSketch(vsketch.SketchClass):
         drawers = {}
         for name, config in STRUCTURE_REGISTRY.items():
             drawer_class = config["drawer_class"]
-            drawers[name] = drawer_class(vsk, self.use_occlusion, self.light_angle, self.hatch_spacing)
+            drawers[name] = drawer_class(vsk, self.light_x, self.light_y, self.hatch_spacing)
         return drawers
 
     def _generate_plants(self, vsk: vsketch.Vsketch, width: float, height: float) -> List[Plant]:
@@ -262,4 +266,29 @@ class ClaudeGardenSketch(vsketch.SketchClass):
 
 
 if __name__ == "__main__":
-    ClaudeGardenSketch.display()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "save":
+        # Save mode: python sketch_claude_garden.py save [--margin=X] [seed]
+        import time
+        args = sys.argv[2:]
+
+        # Parse --margin=X parameter
+        margin = 0.0
+        remaining_args = []
+        for arg in args:
+            if arg.startswith("--margin="):
+                margin = float(arg.split("=")[1])
+            else:
+                remaining_args.append(arg)
+
+        seed = int(remaining_args[0]) if remaining_args else int(time.time()) % 10000
+
+        ClaudeGardenSketch.set_param_set({'margin': margin})
+        sketch = ClaudeGardenSketch.execute(seed=seed, finalize=False)
+        sketch.vsk.vpype("occult ldelete 2 linemerge linesimplify reloop linesort")
+
+        output_path = f"output/claude_garden_s{seed}.svg"
+        sketch.vsk.save(output_path)
+        print(f"Saved: {output_path}")
+    else:
+        ClaudeGardenSketch.display()

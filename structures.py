@@ -268,44 +268,47 @@ class PolyhedronGenerator:
 class StructureDrawer(ABC):
     """Base class for structure drawing with hatching support."""
 
-    def __init__(self, vsk: vsketch.Vsketch, use_occlusion: bool,
-                 light_angle: float, hatch_spacing: float = 0.12):
+    def __init__(self, vsk: vsketch.Vsketch, light_x: float, light_y: float, hatch_spacing: float = 0.12):
         self.vsk = vsk
-        self.use_occlusion = use_occlusion
-        self.light_angle = light_angle
+        self.light_x = light_x
+        self.light_y = light_y
         self.hatch_spacing = hatch_spacing
-
-        # Compute 3D light direction from angle (light from above-right by default)
-        self.light_direction = Vec3(
-            math.cos(light_angle),
-            0.5,  # Light comes from above
-            math.sin(light_angle)
-        ).normalize()
 
     @abstractmethod
     def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
         """Draw a structure at the given position."""
         pass
 
-    def compute_hatch_density(self, face_normal: Vec3) -> float:
+    def compute_light_direction(self, face_center_x: float, face_center_y: float) -> Vec3:
+        """Compute 3D light direction from face center toward light source."""
+        # 2D direction from face center to light source
+        dx = self.light_x - face_center_x
+        dy = self.light_y - face_center_y
+        # Normalize in 2D, then add Y component (light from above)
+        dist = math.sqrt(dx * dx + dy * dy) + 0.001
+        return Vec3(dx / dist, 0.5, dy / dist).normalize()
+
+    def compute_hatch_density(self, face_normal: Vec3, light_direction: Vec3) -> float:
         """Compute hatching density based on face orientation to light.
 
         Returns value 0.0 (brightest, no hatching) to 1.0 (darkest, dense hatching).
         """
-        dot = face_normal.dot(self.light_direction)
+        dot = face_normal.dot(light_direction)
         # Remap: facing light (dot=1) = no hatching (0), away (dot<=0) = dense (1)
         # Use squared falloff for more dramatic contrast
         brightness = max(0, dot)
         density = (1.0 - brightness) ** 0.7
         return density
 
-    def draw_hatched_face(self, points: List[Tuple[float, float]], density: float) -> None:
+    def draw_hatched_face(self, points: List[Tuple[float, float]], density: float,
+                          face_center_x: float, face_center_y: float) -> None:
         """Draw a face with hatching at the given density."""
         if len(points) < 3:
             return
 
-        # Calculate hatch angle perpendicular to light direction
-        hatch_angle = self.light_angle + math.pi / 2
+        # Calculate hatch angle perpendicular to axis from face center to light source
+        angle_to_light = math.atan2(self.light_y - face_center_y, self.light_x - face_center_x)
+        hatch_angle = angle_to_light + math.pi / 2
 
         # Calculate spacing inversely proportional to density
         # Very bright faces (low density) get very sparse or no hatching
@@ -433,8 +436,14 @@ class PolyhedraDrawer(StructureDrawer):
 
         # Draw faces back-to-front (outlines and hatching)
         for face in projected_faces:
-            density = self.compute_hatch_density(face.normal_3d)
-            self.draw_hatched_face(face.points_2d, density)
+            # Compute face center in 2D
+            face_center_x = sum(p[0] for p in face.points_2d) / len(face.points_2d)
+            face_center_y = sum(p[1] for p in face.points_2d) / len(face.points_2d)
+
+            # Compute light direction from this face's position
+            light_dir = self.compute_light_direction(face_center_x, face_center_y)
+            density = self.compute_hatch_density(face.normal_3d, light_dir)
+            self.draw_hatched_face(face.points_2d, density, face_center_x, face_center_y)
 
         # Face outlines are drawn on layer 2 (for occlusion) and layer 1 (visible outline).
         # Hatching is on layer 1. Layer 2 occludes layer 1, ensuring proper depth sorting.

@@ -22,18 +22,17 @@ def bezier_point(t: float, p0: Tuple[float, float], p1: Tuple[float, float],
 
 
 class PlantDrawer(ABC):
-    """Base class for plant drawing with occlusion support.
+    """Base class for plant drawing.
 
     Subclasses must implement the draw() method. Use the helper methods
-    for drawing shapes that properly handle occlusion:
+    for drawing shapes:
     - draw_occluding_shape_from_curves(): For leaf/blade shapes
     - draw_occluding_circle(): For berries/flower centers
     - draw_occluding_polygon(): For custom polygon shapes
     """
 
-    def __init__(self, vsk: vsketch.Vsketch, use_occlusion: bool, wind: float = 0.0):
+    def __init__(self, vsk: vsketch.Vsketch, wind: float = 0.0):
         self.vsk = vsk
-        self.use_occlusion = use_occlusion
         self.wind = wind
 
     @abstractmethod
@@ -50,9 +49,7 @@ class PlantDrawer(ABC):
         pass
 
     def draw_occluding_polygon(self, points_x: List[float], points_y: List[float]) -> None:
-        """Draw a polygon outline."""
-        # Note: Layer 2 occlusion removed - bezier curves dip inside polygon boundary
-        # and get occluded. Visual layering handled by draw order (painter's algorithm).
+        """Draw a closed polygon."""
         self.vsk.stroke(1)
         self.vsk.polygon(points_x, points_y, close=True)
 
@@ -71,32 +68,8 @@ class PlantDrawer(ABC):
         if len(all_points) >= 3:
             self.vsk.polygon([p[0] for p in all_points], [p[1] for p in all_points], close=True)
 
-    def _draw_smooth_curve(self, points: List[Tuple[float, float]]) -> None:
-        """Draw a smooth curve through points using bezier segments."""
-        if len(points) < 2:
-            return
-
-        if len(points) == 2:
-            self.vsk.line(points[0][0], points[0][1], points[1][0], points[1][1])
-            return
-
-        for i in range(len(points) - 1):
-            p0 = points[max(0, i - 1)]
-            p1 = points[i]
-            p2 = points[i + 1]
-            p3 = points[min(len(points) - 1, i + 2)]
-
-            t = 0.5
-            c1x = p1[0] + (p2[0] - p0[0]) * t / 3
-            c1y = p1[1] + (p2[1] - p0[1]) * t / 3
-            c2x = p2[0] - (p3[0] - p1[0]) * t / 3
-            c2y = p2[1] - (p3[1] - p1[1]) * t / 3
-
-            self.vsk.bezier(p1[0], p1[1], c1x, c1y, c2x, c2y, p2[0], p2[1])
-
     def draw_occluding_circle(self, cx: float, cy: float, radius: float) -> None:
-        """Draw a circle outline."""
-        # Note: Layer 2 occlusion removed for consistency with other shapes.
+        """Draw a circle."""
         self.vsk.stroke(1)
         self.vsk.circle(cx, cy, radius, mode="radius")
 
@@ -104,9 +77,8 @@ class PlantDrawer(ABC):
 class GrassDrawer(PlantDrawer):
     """Draws grass blade clumps."""
 
-    def __init__(self, vsk: vsketch.Vsketch, use_occlusion: bool,
-                 blade_width: float, grass_curve: float, wind: float = 0.0):
-        super().__init__(vsk, use_occlusion, wind)
+    def __init__(self, vsk: vsketch.Vsketch, blade_width: float, grass_curve: float, wind: float = 0.0):
+        super().__init__(vsk, wind)
         self.blade_width = blade_width
         self.grass_curve = grass_curve
 
@@ -163,9 +135,8 @@ class GrassDrawer(PlantDrawer):
 class BerryPlantDrawer(PlantDrawer):
     """Draws branching berry plants."""
 
-    def __init__(self, vsk: vsketch.Vsketch, use_occlusion: bool,
-                 stem_width: float, wind: float = 0.0):
-        super().__init__(vsk, use_occlusion, wind)
+    def __init__(self, vsk: vsketch.Vsketch, stem_width: float, wind: float = 0.0):
+        super().__init__(vsk, wind)
         self.stem_width = stem_width
 
     def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
@@ -224,9 +195,8 @@ class BerryPlantDrawer(PlantDrawer):
 class LeafyPlantDrawer(PlantDrawer):
     """Draws plants with serrated leaves."""
 
-    def __init__(self, vsk: vsketch.Vsketch, use_occlusion: bool,
-                 stem_width: float, wind: float = 0.0):
-        super().__init__(vsk, use_occlusion, wind)
+    def __init__(self, vsk: vsketch.Vsketch, stem_width: float, wind: float = 0.0):
+        super().__init__(vsk, wind)
         self.stem_width = stem_width
 
     def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
@@ -326,9 +296,8 @@ class LeafyPlantDrawer(PlantDrawer):
 class BranchDrawer(PlantDrawer):
     """Draws bare tree branches."""
 
-    def __init__(self, vsk: vsketch.Vsketch, use_occlusion: bool,
-                 stem_width: float, wind: float = 0.0):
-        super().__init__(vsk, use_occlusion, wind)
+    def __init__(self, vsk: vsketch.Vsketch, stem_width: float, wind: float = 0.0):
+        super().__init__(vsk, wind)
         self.stem_width = stem_width
 
     def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
