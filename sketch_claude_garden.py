@@ -87,6 +87,12 @@ class ClaudeGardenSketch(vsketch.SketchClass):
     structure_size_variance = vsketch.Param(0.7, min_value=0.0, max_value=1.0, step=0.05)
     hatch_spacing = vsketch.Param(0.25, min_value=0.1, max_value=0.5, step=0.02)
 
+    # === Lighting ===
+    # Light position as fraction of canvas (0-1), negative or >1 places light outside canvas
+    light_pos_x = vsketch.Param(0.5, min_value=-0.5, max_value=1.5, step=0.05)
+    light_pos_y = vsketch.Param(0.5, min_value=-0.5, max_value=1.5, step=0.05)
+    random_light = vsketch.Param(True)  # If true, randomize light position within canvas
+
     # === Style ===
     use_occlusion = vsketch.Param(True)
 
@@ -96,10 +102,15 @@ class ClaudeGardenSketch(vsketch.SketchClass):
 
         width, height = self._get_drawing_area(vsk)
 
-        # Generate random light source position (can be inside or outside canvas)
-        # Range extends beyond canvas by 50% on each side
-        self.light_x = vsk.random(-width * 0.5, width * 1.5)
-        self.light_y = vsk.random(-height * 0.5, height * 1.5)
+        # Set light source position
+        if self.random_light:
+            # Random position within the canvas
+            self.light_x = vsk.random(0, width)
+            self.light_y = vsk.random(0, height)
+        else:
+            # Use parameter values (as fraction of canvas size)
+            self.light_x = self.light_pos_x * width
+            self.light_y = self.light_pos_y * height
 
         # Create all drawers
         plant_drawers = self._create_plant_drawers(vsk)
