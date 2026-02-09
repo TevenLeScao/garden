@@ -610,40 +610,49 @@ class FoxgloveDrawer(PlantDrawer):
 
     def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
         """Draw a foxglove. detail = number of flowers per layer."""
-        stem_height = size * 0.95
-        stem_curve = self.vsk.random(-0.08, 0.08) + angle * 0.15 + self.wind * 0.2
+        stem_length = size * 1.1
 
-        stem_top_x = x + stem_curve * size * 0.3
-        stem_top_y = y - stem_height
+        # Heavy droop: stem arcs up then curves sideways and droops down
+        # Choose a side to curve toward (influenced by wind and angle)
+        curve_side = 1 if (self.wind + angle + self.vsk.random(-0.3, 0.3)) > 0 else -1
+        curve_strength = 0.7 + self.vsk.random(0, 0.4)  # How far it curves sideways
+        droop_strength = 0.5 + self.vsk.random(0, 0.3)  # How much the tip droops
 
-        dx, dy = stem_top_x - x, stem_top_y - y
-        length = math.sqrt(dx * dx + dy * dy) + 0.001
-        curve_amount = self.vsk.random(-0.1, 0.1) * length + self.wind * length * 0.1
-        mid_x = (x + stem_top_x) / 2 + (-dy / length) * curve_amount
-        mid_y = (y + stem_top_y) / 2 + (dx / length) * curve_amount
-
+        # Build stem as a series of points along a drooping arc
         stem_points = []
-        for i in range(21):
-            t = i / 20
-            t1 = 1 - t
-            px = t1**2 * x + 2*t1*t * mid_x + t**2 * stem_top_x
-            py = t1**2 * y + 2*t1*t * mid_y + t**2 * stem_top_y
-            stem_points.append((px, py))
+        curr_x, curr_y = x, y
+        curr_angle = -math.pi / 2 + angle * 0.2 + self.wind * 0.15  # Start going up
+
+        steps = 20
+        for i in range(steps + 1):
+            stem_points.append((curr_x, curr_y))
+            if i < steps:
+                t = i / steps
+                seg_len = stem_length / steps
+
+                # Gradually curve to the side and droop
+                # Early: mostly upward, Late: curve sideways and down
+                side_curve = curve_side * curve_strength * (t ** 1.5) * 0.15
+                droop_curve = droop_strength * (t ** 2) * 0.12
+
+                curr_angle += side_curve + droop_curve + self.wind * 0.01
+                curr_x += math.cos(curr_angle) * seg_len
+                curr_y += math.sin(curr_angle) * seg_len
 
         self._draw_stem_path(stem_points, self.stem_width * size * 1.5)
 
         # Base flower size
         base_flower_size = size * 0.09
         # Number of flowers based on stem coverage - nearly stem_height / flower_size
-        num_flowers = max(5, int(stem_height / (base_flower_size * 1.1)))
+        num_flowers = max(5, int(stem_length / (base_flower_size * 1.1)))
         # Max layers based on size
         max_layers = max(2, min(6, int(size / 1.5) + 1))
 
         # Draw flowers down the entire stem on BOTH sides at each position
         for i in range(num_flowers):
-            # Flowers cover stem, leaving bottom visible
+            # Flowers cover stem from bottom to tip (no stem sticking out at top)
             # Use linear spacing for even distribution
-            t = 0.2 + 0.75 * (i / (num_flowers - 1)) if num_flowers > 1 else 0.5
+            t = 0.15 + 0.85 * (i / (num_flowers - 1)) if num_flowers > 1 else 0.5
             idx = int(t * (len(stem_points) - 1))
             flower_x, flower_y = stem_points[idx]
 
@@ -679,13 +688,13 @@ class FoxgloveDrawer(PlantDrawer):
                     self._draw_bell_flower(offset_x, offset_y, droop, flower_size)
 
     def _draw_stem_path(self, points: List[Tuple[float, float]], width: float) -> None:
-        """Draw the stem."""
+        """Draw the stem tapering to an acute point."""
         left_curve = []
         right_curve = []
 
         for i, (px, py) in enumerate(points):
             t = i / (len(points) - 1)
-            w = width * (1 - t * 0.6) / 2
+            w = width * (1 - t) / 2  # Taper to a point at tip
 
             if i < len(points) - 1:
                 dx = points[i + 1][0] - px
