@@ -28,7 +28,6 @@ class PlantDrawer(ABC):
     for drawing shapes:
     - draw_occluding_shape_from_curves(): For leaf/blade shapes
     - draw_occluding_circle(): For berries/flower centers
-    - draw_occluding_polygon(): For custom polygon shapes
     """
 
     def __init__(self, vsk: vsketch.Vsketch, wind: float = 0.0):
@@ -47,11 +46,6 @@ class PlantDrawer(ABC):
             detail: Level of detail (blade count, branch depth, etc.)
         """
         pass
-
-    def draw_occluding_polygon(self, points_x: List[float], points_y: List[float]) -> None:
-        """Draw a closed polygon."""
-        self.vsk.stroke(1)
-        self.vsk.polygon(points_x, points_y, close=True)
 
     def draw_occluding_shape_from_curves(self, left_curve: List[Tuple[float, float]],
                                           right_curve: List[Tuple[float, float]]) -> None:
@@ -395,3 +389,345 @@ class BranchDrawer(PlantDrawer):
             right_curve.append((px - nx * w, py - ny * w))
 
         self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+
+class FernDrawer(PlantDrawer):
+    """Draws ferns with fractal fronds that curve toward the ground."""
+
+    def __init__(self, vsk: vsketch.Vsketch, stem_width: float, wind: float = 0.0):
+        super().__init__(vsk, wind)
+        self.stem_width = stem_width
+
+    def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
+        """Draw a fern. detail = number of main fronds."""
+        num_fronds = max(2, detail)
+        for i in range(num_fronds):
+            spread = (i - (num_fronds - 1) / 2) / max(1, num_fronds - 1)
+            frond_angle = -math.pi / 2 + spread * 0.8 + angle * 0.3 + self.wind * 0.3
+            frond_length = size * self.vsk.random(0.7, 1.0)
+            self._draw_frond(x, y, frond_angle, frond_length, self.stem_width * size)
+
+    def _draw_frond(self, x: float, y: float, angle: float, length: float, width: float) -> None:
+        """Draw a single fern frond with pinnae (leaflets)."""
+        steps = 10
+        curve_strength = 0.6 + self.wind * 0.3
+
+        rachis_points = [(x, y)]
+        curr_x, curr_y = x, y
+        for i in range(1, steps + 1):
+            t = i / steps
+            current_angle = angle + curve_strength * t * t
+            seg_length = length / steps
+            curr_x += math.cos(current_angle) * seg_length
+            curr_y += math.sin(current_angle) * seg_length
+            rachis_points.append((curr_x, curr_y))
+
+        for i in range(1, steps - 1):
+            t = i / steps
+            px, py = rachis_points[i]
+            current_angle = angle + curve_strength * t * t
+            pinna_size = length * 0.18 * (1 - t * 0.6)
+
+            for side in [-1, 1]:
+                pinna_angle = current_angle + side * (math.pi / 2.5 + self.vsk.random(-0.1, 0.1))
+                self._draw_pinna(px, py, pinna_angle, pinna_size, int(3 + (1 - t) * 2))
+
+        self._draw_rachis_path(rachis_points, width)
+
+    def _draw_pinna(self, x: float, y: float, angle: float, size: float, sub_pinnae: int) -> None:
+        """Draw a pinna with optional sub-pinnae for fractal effect."""
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+        steps = 5
+
+        for i in range(1, steps + 1):
+            t = i / steps
+            px = x + math.cos(angle) * size * t
+            py = y + math.sin(angle) * size * t
+            w = size * 0.08 * (1 - t * 0.8)
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+        if sub_pinnae > 0 and size > 0.15:
+            for j in range(sub_pinnae):
+                st = (j + 1) / (sub_pinnae + 1)
+                spx = x + math.cos(angle) * size * st
+                spy = y + math.sin(angle) * size * st
+                for side in [-1, 1]:
+                    sub_angle = angle + side * math.pi / 3
+                    sub_size = size * 0.3
+                    self._draw_simple_pinnule(spx, spy, sub_angle, sub_size)
+
+    def _draw_simple_pinnule(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a simple small leaflet."""
+        end_x = x + math.cos(angle) * size
+        end_y = y + math.sin(angle) * size
+        self.vsk.stroke(1)
+        self.vsk.line(x, y, end_x, end_y)
+
+    def _draw_rachis_path(self, points: List[Tuple[float, float]], width: float) -> None:
+        """Draw the main rachis as a tapered shape."""
+        left_curve = []
+        right_curve = []
+
+        for i, (px, py) in enumerate(points):
+            t = i / (len(points) - 1)
+            w = width * (1 - t * 0.85) / 2
+
+            if i < len(points) - 1:
+                dx = points[i + 1][0] - px
+                dy = points[i + 1][1] - py
+            else:
+                dx = px - points[i - 1][0]
+                dy = py - points[i - 1][1]
+
+            ln = math.sqrt(dx * dx + dy * dy) + 0.001
+            nx, ny = -dy / ln, dx / ln
+
+            left_curve.append((px + nx * w, py + ny * w))
+            right_curve.append((px - nx * w, py - ny * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+
+class VineDrawer(PlantDrawer):
+    """Draws long sinewy vines that wind and branch smoothly."""
+
+    def __init__(self, vsk: vsketch.Vsketch, stem_width: float, wind: float = 0.0):
+        super().__init__(vsk, wind)
+        self.stem_width = stem_width
+
+    def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
+        """Draw a vine. detail = branching depth."""
+        vine_angle = -math.pi / 2 + angle * 0.4 + self.wind * 0.3 + self.vsk.random(-0.2, 0.2)
+        self._draw_vine_segment(x, y, vine_angle, size * 1.8, detail, self.stem_width * size)
+
+    def _draw_vine_segment(self, x: float, y: float, angle: float, length: float,
+                           depth: int, width: float) -> None:
+        """Draw a smoothly winding vine segment."""
+        if depth <= 0 or length < 0.1:
+            return
+
+        steps = 30
+        # Gentle sinusoidal winding
+        wave_freq = self.vsk.random(1.0, 2.0)
+        wave_amp = length * 0.03
+
+        points = [(x, y)]
+        curr_x, curr_y = x, y
+        curr_angle = angle
+
+        branch_point = None
+        branch_idx = int(self.vsk.random(0.3, 0.6) * steps) if depth > 1 else -1
+
+        for i in range(1, steps + 1):
+            t = i / steps
+            # Very gentle angle drift
+            curr_angle += self.wind * 0.008 + self.vsk.random(-0.02, 0.02)
+            wave = math.sin(t * wave_freq * math.pi * 2) * wave_amp
+
+            seg_len = length / steps
+            perp_angle = curr_angle + math.pi / 2
+            curr_x += math.cos(curr_angle) * seg_len + math.cos(perp_angle) * wave * 0.15
+            curr_y += math.sin(curr_angle) * seg_len + math.sin(perp_angle) * wave * 0.15
+            points.append((curr_x, curr_y))
+
+            if i == branch_idx:
+                branch_point = (curr_x, curr_y, curr_angle, width * (1 - t * 0.4))
+
+        # Draw main vine
+        self._draw_vine_path(points, width)
+
+        # Draw branch from stored point
+        if branch_point and self.vsk.random(0, 1) > 0.4:
+            bx, by, bangle, bwidth = branch_point
+            branch_angle = bangle + self.vsk.random(-0.4, 0.4)
+            branch_length = length * self.vsk.random(0.5, 0.7)
+            self._draw_vine_segment(bx, by, branch_angle, branch_length, depth - 1, bwidth * 0.7)
+
+        # Draw small leaves
+        for i in range(3, len(points) - 1, 5):
+            if self.vsk.random(0, 1) > 0.4:
+                lx, ly = points[i]
+                leaf_angle = curr_angle + self.vsk.random(-1.0, 1.0)
+                self._draw_small_leaf(lx, ly, leaf_angle, length * 0.05)
+
+    def _draw_vine_path(self, points: List[Tuple[float, float]], width: float) -> None:
+        """Draw vine as smoothly tapered shape."""
+        if len(points) < 2:
+            return
+
+        left_curve = []
+        right_curve = []
+
+        for i, (px, py) in enumerate(points):
+            t = i / (len(points) - 1)
+            w = width * (1 - t * 0.6) / 2
+
+            if i < len(points) - 1:
+                dx = points[i + 1][0] - px
+                dy = points[i + 1][1] - py
+            else:
+                dx = px - points[i - 1][0]
+                dy = py - points[i - 1][1]
+
+            ln = math.sqrt(dx * dx + dy * dy) + 0.001
+            nx, ny = -dy / ln, dx / ln
+
+            left_curve.append((px + nx * w, py + ny * w))
+            right_curve.append((px - nx * w, py - ny * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_small_leaf(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a small leaf."""
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+
+        for i in range(1, 5):
+            t = i / 4
+            w = size * 0.35 * math.sin(t * math.pi)
+            px = x + math.cos(angle) * size * t
+            py = y + math.sin(angle) * size * t
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+
+class FoxgloveDrawer(PlantDrawer):
+    """Draws foxglove with thick cascading layers of bell-shaped flowers."""
+
+    def __init__(self, vsk: vsketch.Vsketch, stem_width: float, wind: float = 0.0):
+        super().__init__(vsk, wind)
+        self.stem_width = stem_width
+
+    def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
+        """Draw a foxglove. detail = number of flowers per layer."""
+        stem_height = size * 0.95
+        stem_curve = self.vsk.random(-0.08, 0.08) + angle * 0.15 + self.wind * 0.2
+
+        stem_top_x = x + stem_curve * size * 0.3
+        stem_top_y = y - stem_height
+
+        dx, dy = stem_top_x - x, stem_top_y - y
+        length = math.sqrt(dx * dx + dy * dy) + 0.001
+        curve_amount = self.vsk.random(-0.1, 0.1) * length + self.wind * length * 0.1
+        mid_x = (x + stem_top_x) / 2 + (-dy / length) * curve_amount
+        mid_y = (y + stem_top_y) / 2 + (dx / length) * curve_amount
+
+        stem_points = []
+        for i in range(21):
+            t = i / 20
+            t1 = 1 - t
+            px = t1**2 * x + 2*t1*t * mid_x + t**2 * stem_top_x
+            py = t1**2 * y + 2*t1*t * mid_y + t**2 * stem_top_y
+            stem_points.append((px, py))
+
+        self._draw_stem_path(stem_points, self.stem_width * size * 1.5)
+
+        # Base flower size
+        base_flower_size = size * 0.09
+        # Number of flowers based on stem coverage - nearly stem_height / flower_size
+        num_flowers = max(5, int(stem_height / (base_flower_size * 1.1)))
+        # Max layers based on size
+        max_layers = max(2, min(6, int(size / 1.5) + 1))
+
+        # Draw flowers down the entire stem on BOTH sides at each position
+        for i in range(num_flowers):
+            # Flowers cover stem, leaving bottom visible
+            # Use linear spacing for even distribution
+            t = 0.2 + 0.75 * (i / (num_flowers - 1)) if num_flowers > 1 else 0.5
+            idx = int(t * (len(stem_points) - 1))
+            flower_x, flower_y = stem_points[idx]
+
+            # Compute stem tangent and perpendicular
+            if idx < len(stem_points) - 1:
+                tangent_x = stem_points[idx + 1][0] - flower_x
+                tangent_y = stem_points[idx + 1][1] - flower_y
+            else:
+                tangent_x = flower_x - stem_points[idx - 1][0]
+                tangent_y = flower_y - stem_points[idx - 1][1]
+            stem_angle = math.atan2(tangent_y, tangent_x)
+            perp_angle = stem_angle + math.pi / 2
+
+            # Fewer layers toward the top for triangular shape
+            # t=0.1 (bottom) gets max_layers, t=0.95 (top) gets 1-2 layers
+            layers_at_position = max(1, int(max_layers * (1.1 - t)))
+
+            # Draw flowers on BOTH sides at this position
+            for side in [-1, 1]:
+                # Draw horizontal layers - outer layers more to the sides
+                for layer in range(layers_at_position):
+                    layer_size_factor = 1.0 - layer * 0.04  # Outer layers slightly smaller
+
+                    # Offset perpendicular to stem (horizontal layering - outer = more to the side)
+                    layer_offset = layer * size * 0.02
+                    offset_x = flower_x + math.cos(perp_angle) * side * layer_offset
+                    offset_y = flower_y + math.sin(perp_angle) * side * layer_offset
+
+                    # Flowers point downward with tip angled toward stem
+                    droop = math.pi / 2 - side * 0.3 + self.vsk.random(-0.15, 0.15)
+
+                    flower_size = base_flower_size * layer_size_factor * (1.3 - t * 0.5)
+                    self._draw_bell_flower(offset_x, offset_y, droop, flower_size)
+
+    def _draw_stem_path(self, points: List[Tuple[float, float]], width: float) -> None:
+        """Draw the stem."""
+        left_curve = []
+        right_curve = []
+
+        for i, (px, py) in enumerate(points):
+            t = i / (len(points) - 1)
+            w = width * (1 - t * 0.6) / 2
+
+            if i < len(points) - 1:
+                dx = points[i + 1][0] - px
+                dy = points[i + 1][1] - py
+            else:
+                dx = px - points[i - 1][0]
+                dy = py - points[i - 1][1]
+
+            ln = math.sqrt(dx * dx + dy * dy) + 0.001
+            nx, ny = -dy / ln, dx / ln
+
+            left_curve.append((px + nx * w, py + ny * w))
+            right_curve.append((px - nx * w, py - ny * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_bell_flower(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a bell-shaped foxglove flower."""
+        bell_length = size
+        bell_max_width = size * 0.5
+
+        left_curve = []
+        right_curve = []
+        steps = 6
+
+        for i in range(steps + 1):
+            t = i / steps
+            if t < 0.6:
+                width_factor = 0.15 + 0.85 * (t / 0.6)
+            else:
+                width_factor = 1.0 - 0.1 * ((t - 0.6) / 0.4)
+
+            w = bell_max_width * width_factor / 2
+            px = x + math.cos(angle) * bell_length * t
+            py = y + math.sin(angle) * bell_length * t
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+        spot_x = x + math.cos(angle) * bell_length * 0.4
+        spot_y = y + math.sin(angle) * bell_length * 0.4
+        self.draw_occluding_circle(spot_x, spot_y, size * 0.06)

@@ -4,7 +4,8 @@ import math
 import vsketch
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Union
-from plants import PlantDrawer, GrassDrawer, BerryPlantDrawer, LeafyPlantDrawer, BranchDrawer
+from plants import (PlantDrawer, GrassDrawer, BerryPlantDrawer, LeafyPlantDrawer,
+                    BranchDrawer, FernDrawer, VineDrawer, FoxgloveDrawer)
 from structures import StructureDrawer, PolyhedraDrawer
 
 
@@ -52,9 +53,27 @@ PLANT_REGISTRY: Dict[str, Dict] = {
     },
     "branch": {
         "drawer_class": BranchDrawer,
-        "weight": 12,
+        "weight": 10,
         "size_scale": 1.0,
         "draw_params": lambda vsk: {"detail": int(vsk.random(4, 6))},
+    },
+    "fern": {
+        "drawer_class": FernDrawer,
+        "weight": 12,
+        "size_scale": 0.8,
+        "draw_params": lambda vsk: {"detail": int(vsk.random(3, 6))},
+    },
+    "vine": {
+        "drawer_class": VineDrawer,
+        "weight": 8,
+        "size_scale": 1.2,
+        "draw_params": lambda vsk: {"detail": int(vsk.random(2, 4))},
+    },
+    "foxglove": {
+        "drawer_class": FoxgloveDrawer,
+        "weight": 10,
+        "size_scale": 1.0,
+        "draw_params": lambda vsk: {"detail": int(vsk.random(5, 10))},
     },
 }
 
