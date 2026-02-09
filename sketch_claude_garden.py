@@ -253,9 +253,11 @@ class ClaudeGardenSketch(vsketch.SketchClass):
     def finalize(self, vsk: vsketch.Vsketch) -> None:
         # Crop to page bounds, apply occlusion, and optimize paths
         crop_cmd = f"crop 0 0 {vsk.width}px {vsk.height}px"
-        # Use occult -i to perform occlusion ignoring layers (treats all geometry as one layer)
-        # Later-drawn shapes occlude earlier-drawn ones (painter's algorithm)
-        occlusion_cmd = "occult -i" if self.use_occlusion else ""
+        # Use layer-based occlusion: layer 2 (structure face outlines) occludes layer 1 (plants, hatching).
+        # This ensures polyhedron faces properly hide content behind them, while allowing
+        # plants in front to properly occlude the hatching (since both are on layer 1).
+        # After occlusion, delete layer 2 (it was only used for occlusion, not visible output).
+        occlusion_cmd = "occult ldelete 2" if self.use_occlusion else ""
         vsk.vpype(f"{crop_cmd} {occlusion_cmd} linemerge linesimplify reloop linesort")
 
 

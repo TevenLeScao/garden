@@ -331,10 +331,13 @@ class StructureDrawer(ABC):
         px = -dy
         py = dx
 
-        # For structures, we don't use layer 2 occlusion - the hatching provides visual fill
-        # and painter's algorithm (draw order) handles face occlusion within each polyhedron
+        # Use layer 2 for the face outline (occluding polygon).
+        # Layer 2 occludes layer 1 content that falls within the closed polygon.
+        # This ensures proper occlusion: the face outline blocks plants/hatching behind it.
+        self.vsk.stroke(2)
+        self.vsk.polygon([p[0] for p in points], [p[1] for p in points], close=True)
 
-        # Draw outline
+        # Draw visible outline on layer 1 (so it's visible in the final output)
         self.vsk.stroke(1)
         self.vsk.polygon([p[0] for p in points], [p[1] for p in points], close=True)
 
@@ -433,5 +436,5 @@ class PolyhedraDrawer(StructureDrawer):
             density = self.compute_hatch_density(face.normal_3d)
             self.draw_hatched_face(face.points_2d, density)
 
-        # Note: Structures don't use layer 2 occlusion because it would hide the hatching.
-        # Visual layering is handled by draw order (painter's algorithm) in the main sketch.
+        # Face outlines are drawn on layer 2 (for occlusion) and layer 1 (visible outline).
+        # Hatching is on layer 1. Layer 2 occludes layer 1, ensuring proper depth sorting.
