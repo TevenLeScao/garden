@@ -87,12 +87,14 @@ class GrassDrawer(PlantDrawer):
             blade_height = size * self.vsk.random(0.6, 1.0)
             curve_dir = self.vsk.random(-1, 1) + angle * 2 + self.wind * 1.5
             curve_amount = self.grass_curve * self.vsk.random(0.5, 1.5)
+            # Choose blade tip type: 0=pointed, 1=rounded, 2=split, 3=curled, 4=seed head
+            tip_type = int(self.vsk.random(0, 5))
 
-            self._draw_blade(blade_x, y, blade_height, curve_dir, curve_amount)
+            self._draw_blade(blade_x, y, blade_height, curve_dir, curve_amount, tip_type)
 
     def _draw_blade(self, x: float, y: float, height: float,
-                    curve_dir: float, curve_amount: float) -> None:
-        """Draw a single grass blade as two curves meeting at a sharp tip."""
+                    curve_dir: float, curve_amount: float, tip_type: int = 0) -> None:
+        """Draw a single grass blade with variable tip type."""
         tip_x = x + curve_dir * height * curve_amount
         tip_y = y - height
         base_half_width = self.blade_width * height / 2
@@ -109,7 +111,24 @@ class GrassDrawer(PlantDrawer):
         for i in range(steps + 1):
             t = i / steps
             cx, cy = bezier_point(t, p0, p1, p2, p3)
-            width = base_half_width * (1 - t ** 0.7)
+
+            # Variable tip shape based on tip_type
+            if tip_type == 1:  # Rounded tip
+                width = base_half_width * math.sqrt(1 - t) * 0.8
+            elif tip_type == 2:  # Split tip - stays wider near top
+                width = base_half_width * max(0.15, 1 - t * 0.85)
+            elif tip_type == 3:  # Curled tip - narrows then widens slightly
+                if t > 0.8:
+                    width = base_half_width * (0.1 + (t - 0.8) * 0.5)
+                else:
+                    width = base_half_width * (1 - t * 1.1)
+            elif tip_type == 4:  # Seed head - bulge at top
+                if t > 0.85:
+                    width = base_half_width * (0.3 + math.sin((t - 0.85) / 0.15 * math.pi) * 0.4)
+                else:
+                    width = base_half_width * (1 - t * 0.8)
+            else:  # Pointed (default)
+                width = base_half_width * (1 - t ** 0.7)
 
             if i < steps:
                 cx_next, cy_next = bezier_point((i + 1) / steps, p0, p1, p2, p3)
@@ -125,6 +144,20 @@ class GrassDrawer(PlantDrawer):
 
         self.draw_occluding_shape_from_curves(left_curve, right_curve)
 
+        # Add extra details for split and seed head types
+        if tip_type == 2:  # Split tip - draw a small V notch
+            notch_depth = height * 0.03
+            self.vsk.stroke(1)
+            self.vsk.line(tip_x, tip_y, tip_x - base_half_width * 0.3, tip_y - notch_depth)
+            self.vsk.line(tip_x, tip_y, tip_x + base_half_width * 0.3, tip_y - notch_depth)
+        elif tip_type == 4:  # Seed head - draw small seeds
+            for _ in range(int(self.vsk.random(2, 5))):
+                seed_angle = self.vsk.random(0, math.pi * 2)
+                seed_dist = self.vsk.random(0.02, 0.05) * height
+                sx = tip_x + math.cos(seed_angle) * seed_dist
+                sy = tip_y + math.sin(seed_angle) * seed_dist
+                self.draw_occluding_circle(sx, sy, height * 0.015)
+
 
 class BerryPlantDrawer(PlantDrawer):
     """Draws branching berry plants."""
@@ -136,11 +169,13 @@ class BerryPlantDrawer(PlantDrawer):
     def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
         """Draw a berry plant. detail = branch recursion depth."""
         berry_size = size * 0.025
+        # Choose extremity type for this plant: 0=round berry, 1=elongated, 2=flower, 3=cluster, 4=bud
+        extremity_type = int(self.vsk.random(0, 5))
         self._draw_branch(x, y, -math.pi / 2 + angle * 0.3 + self.wind * 0.3,
-                         size * 0.35, detail, self.stem_width * size, berry_size)
+                         size * 0.35, detail, self.stem_width * size, berry_size, extremity_type)
 
     def _draw_branch(self, x: float, y: float, angle: float, length: float,
-                     depth: int, width: float, berry_size: float) -> None:
+                     depth: int, width: float, berry_size: float, extremity_type: int = 0) -> None:
         if depth <= 0:
             return
 
@@ -152,7 +187,7 @@ class BerryPlantDrawer(PlantDrawer):
         self._draw_tapered_branch(x, y, end_x, end_y, width, width * 0.6)
 
         if depth == 1:
-            self.draw_occluding_circle(end_x, end_y, berry_size)
+            self._draw_extremity(end_x, end_y, angle, berry_size, extremity_type)
         else:
             num_branches = int(self.vsk.random(2, 4))
             angle_spread = math.radians(30)
@@ -161,7 +196,100 @@ class BerryPlantDrawer(PlantDrawer):
                 branch_angle = angle + self.vsk.random(-angle_spread, angle_spread)
                 branch_length = length * self.vsk.random(0.6, 0.9)
                 self._draw_branch(end_x, end_y, branch_angle,
-                                 branch_length, depth - 1, width * 0.7, berry_size)
+                                 branch_length, depth - 1, width * 0.7, berry_size, extremity_type)
+
+    def _draw_extremity(self, x: float, y: float, angle: float, size: float, ext_type: int) -> None:
+        """Draw different types of branch extremities."""
+        if ext_type == 1:  # Elongated berry/olive shape
+            self._draw_elongated_berry(x, y, angle, size)
+        elif ext_type == 2:  # Simple flower
+            self._draw_simple_flower(x, y, size)
+        elif ext_type == 3:  # Berry cluster
+            self._draw_berry_cluster(x, y, size)
+        elif ext_type == 4:  # Unopened bud
+            self._draw_bud(x, y, angle, size)
+        else:  # Round berry (default)
+            self.draw_occluding_circle(x, y, size)
+
+    def _draw_elongated_berry(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw an elongated berry shape."""
+        length = size * self.vsk.random(2.0, 3.0)
+        width_ratio = self.vsk.random(0.4, 0.6)
+        left_curve = []
+        right_curve = []
+
+        for i in range(6):
+            t = i / 5
+            px = x + math.cos(angle) * length * (t - 0.5)
+            py = y + math.sin(angle) * length * (t - 0.5)
+            w = size * width_ratio * math.sin(t * math.pi)
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_simple_flower(self, x: float, y: float, size: float) -> None:
+        """Draw a simple flower with petals."""
+        petal_count = int(self.vsk.random(4, 7))
+        petal_length = size * self.vsk.random(1.5, 2.5)
+        petal_width = size * self.vsk.random(0.5, 0.8)
+
+        for i in range(petal_count):
+            petal_angle = (i / petal_count) * math.pi * 2 + self.vsk.random(-0.1, 0.1)
+            self._draw_petal(x, y, petal_angle, petal_length, petal_width)
+
+        # Center
+        self.draw_occluding_circle(x, y, size * 0.5)
+
+    def _draw_petal(self, x: float, y: float, angle: float, length: float, width: float) -> None:
+        """Draw a single petal."""
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+
+        for i in range(1, 5):
+            t = i / 4
+            px = x + math.cos(angle) * length * t
+            py = y + math.sin(angle) * length * t
+            w = width * math.sin(t * math.pi)
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_berry_cluster(self, x: float, y: float, size: float) -> None:
+        """Draw a cluster of small berries."""
+        cluster_count = int(self.vsk.random(3, 6))
+        for _ in range(cluster_count):
+            offset_angle = self.vsk.random(0, math.pi * 2)
+            offset_dist = self.vsk.random(0, size * 0.8)
+            bx = x + math.cos(offset_angle) * offset_dist
+            by = y + math.sin(offset_angle) * offset_dist
+            berry_r = size * self.vsk.random(0.4, 0.7)
+            self.draw_occluding_circle(bx, by, berry_r)
+
+    def _draw_bud(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw an unopened bud."""
+        bud_length = size * self.vsk.random(1.8, 2.5)
+        bud_width = size * self.vsk.random(0.6, 0.9)
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+
+        for i in range(1, 6):
+            t = i / 5
+            px = x + math.cos(angle) * bud_length * t
+            py = y + math.sin(angle) * bud_length * t
+            # Teardrop shape - wider at base, pointed at tip
+            w = bud_width * (1 - t ** 0.5) * math.sin(t * math.pi * 0.8 + 0.2)
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
 
     def _draw_tapered_branch(self, x1: float, y1: float, x2: float, y2: float,
                              width_start: float, width_end: float) -> None:
@@ -262,11 +390,25 @@ class LeafyPlantDrawer(PlantDrawer):
         self.draw_occluding_shape_from_curves(left_curve, right_curve)
 
     def _draw_serrated_leaf(self, x: float, y: float, size: float, angle: float) -> None:
-        """Draw a serrated leaf."""
+        """Draw a serrated leaf with variable shape."""
         leaf_length = size
-        leaf_width = size * 0.35
-        serration_count = 4
-        serration_depth = leaf_width * 0.15
+        # Randomize width ratio for different leaf shapes
+        width_ratio = self.vsk.random(0.25, 0.45)
+        leaf_width = size * width_ratio
+
+        # Randomize serration count (2-6 serrations)
+        serration_count = int(self.vsk.random(2, 7))
+        # Randomize serration depth
+        serration_depth = leaf_width * self.vsk.random(0.08, 0.25)
+
+        # Randomize shape profile: where the widest point is (0.3 = near base, 0.7 = near tip)
+        widest_point = self.vsk.random(0.35, 0.6)
+        # Pointedness: how sharply the leaf tapers (higher = more pointed)
+        pointedness = self.vsk.random(1.0, 2.5)
+
+        # Slight asymmetry between left and right sides
+        left_width_factor = self.vsk.random(0.9, 1.1)
+        right_width_factor = self.vsk.random(0.9, 1.1)
 
         left_curve = [(x, y)]
         right_curve = [(x, y)]
@@ -275,35 +417,50 @@ class LeafyPlantDrawer(PlantDrawer):
             t = (i + 0.5) / serration_count
             cx = x + math.cos(angle) * leaf_length * t
             cy = y + math.sin(angle) * leaf_length * t
-            width_factor = 1 - abs(t - 0.5) * 2
-            local_width = leaf_width * width_factor
+
+            # Variable width profile based on widest_point and pointedness
+            if t < widest_point:
+                width_factor = (t / widest_point) ** (1 / pointedness)
+            else:
+                width_factor = ((1 - t) / (1 - widest_point)) ** pointedness
+
+            local_width_left = leaf_width * width_factor * left_width_factor
+            local_width_right = leaf_width * width_factor * right_width_factor
+
+            # Vary serration depth per tooth
+            tooth_depth = serration_depth * self.vsk.random(0.7, 1.3)
 
             perp_left = angle + math.pi / 2
             perp_right = angle - math.pi / 2
 
-            left_curve.append((cx + math.cos(perp_left) * (local_width + serration_depth),
-                              cy + math.sin(perp_left) * (local_width + serration_depth)))
-            right_curve.append((cx + math.cos(perp_right) * (local_width + serration_depth),
-                               cy + math.sin(perp_right) * (local_width + serration_depth)))
+            left_curve.append((cx + math.cos(perp_left) * (local_width_left + tooth_depth),
+                              cy + math.sin(perp_left) * (local_width_left + tooth_depth)))
+            right_curve.append((cx + math.cos(perp_right) * (local_width_right + tooth_depth),
+                               cy + math.sin(perp_right) * (local_width_right + tooth_depth)))
 
             if i < serration_count - 1:
                 t2 = (i + 1) / serration_count
                 cx2 = x + math.cos(angle) * leaf_length * t2
                 cy2 = y + math.sin(angle) * leaf_length * t2
-                width_factor2 = 1 - abs(t2 - 0.5) * 2
-                local_width2 = leaf_width * width_factor2
 
-                left_curve.append((cx2 + math.cos(perp_left) * local_width2,
-                                  cy2 + math.sin(perp_left) * local_width2))
-                right_curve.append((cx2 + math.cos(perp_right) * local_width2,
-                                   cy2 + math.sin(perp_right) * local_width2))
+                if t2 < widest_point:
+                    width_factor2 = (t2 / widest_point) ** (1 / pointedness)
+                else:
+                    width_factor2 = ((1 - t2) / (1 - widest_point)) ** pointedness
+
+                local_width2_left = leaf_width * width_factor2 * left_width_factor
+                local_width2_right = leaf_width * width_factor2 * right_width_factor
+
+                left_curve.append((cx2 + math.cos(perp_left) * local_width2_left,
+                                  cy2 + math.sin(perp_left) * local_width2_left))
+                right_curve.append((cx2 + math.cos(perp_right) * local_width2_right,
+                                   cy2 + math.sin(perp_right) * local_width2_right))
 
         tip_x = x + math.cos(angle) * leaf_length
         tip_y = y + math.sin(angle) * leaf_length
         left_curve.append((tip_x, tip_y))
         right_curve.append((tip_x, tip_y))
 
-        # Don't reverse right_curve here - draw_occluding_shape_from_curves handles it
         self.draw_occluding_shape_from_curves(left_curve, right_curve)
 
         self.vsk.stroke(1)
@@ -319,11 +476,13 @@ class BranchDrawer(PlantDrawer):
 
     def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
         """Draw tree branches. detail = recursion depth."""
+        # Choose tip type for this branch: 0=bare point, 1=small bud, 2=tiny leaf, 3=thorn, 4=catkin
+        tip_type = int(self.vsk.random(0, 5))
         self._draw_segment(x, y, -math.pi / 2 + angle * 0.2 + self.wind * 0.2,
-                          size * 0.3, detail, self.stem_width * size * 1.5)
+                          size * 0.3, detail, self.stem_width * size * 1.5, tip_type)
 
     def _draw_segment(self, x: float, y: float, angle: float, length: float,
-                      depth: int, width: float) -> None:
+                      depth: int, width: float, tip_type: int = 0) -> None:
         if depth <= 0 or length < 0.08:
             return
 
@@ -338,7 +497,10 @@ class BranchDrawer(PlantDrawer):
         width_end = 0.0 if depth == 1 else width * 0.5
         self._draw_curved_branch(x, y, end_x, end_y, width, width_end, curve_offset, angle)
 
-        if depth > 1:
+        if depth == 1:
+            # Draw tip extremity
+            self._draw_branch_tip(end_x, end_y, angle, length * 0.15, tip_type)
+        elif depth > 1:
             num_branches = int(self.vsk.random(2, 4))
             angle_spread = math.radians(30)
 
@@ -351,7 +513,93 @@ class BranchDrawer(PlantDrawer):
 
                 branch_length = length * self.vsk.random(0.5, 0.75)
                 self._draw_segment(end_x, end_y, branch_angle,
-                                  branch_length, depth - 1, width * 0.6)
+                                  branch_length, depth - 1, width * 0.6, tip_type)
+
+    def _draw_branch_tip(self, x: float, y: float, angle: float, size: float, tip_type: int) -> None:
+        """Draw different types of branch tip extremities."""
+        if tip_type == 1:  # Small bud
+            self._draw_small_bud(x, y, angle, size)
+        elif tip_type == 2:  # Tiny leaf
+            self._draw_tiny_leaf(x, y, angle, size)
+        elif tip_type == 3:  # Thorn
+            self._draw_thorn(x, y, angle, size)
+        elif tip_type == 4:  # Catkin
+            self._draw_catkin(x, y, angle, size)
+        # else: bare point (default) - nothing to draw
+
+    def _draw_small_bud(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a small bud at branch tip."""
+        bud_length = size * self.vsk.random(0.8, 1.2)
+        bud_width = size * self.vsk.random(0.3, 0.5)
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+
+        for i in range(1, 5):
+            t = i / 4
+            px = x + math.cos(angle) * bud_length * t
+            py = y + math.sin(angle) * bud_length * t
+            w = bud_width * math.sin(t * math.pi * 0.9) * (1 - t * 0.3)
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_tiny_leaf(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a tiny leaf at branch tip."""
+        leaf_length = size * self.vsk.random(1.0, 1.5)
+        leaf_width = size * self.vsk.random(0.3, 0.5)
+        # Offset leaf angle slightly
+        leaf_angle = angle + self.vsk.random(-0.3, 0.3)
+
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+
+        for i in range(1, 5):
+            t = i / 4
+            px = x + math.cos(leaf_angle) * leaf_length * t
+            py = y + math.sin(leaf_angle) * leaf_length * t
+            w = leaf_width * math.sin(t * math.pi)
+
+            perp = leaf_angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_thorn(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a sharp thorn at branch tip."""
+        thorn_length = size * self.vsk.random(0.6, 1.0)
+        thorn_width = size * self.vsk.random(0.15, 0.25)
+
+        left_curve = [(x - math.cos(angle + math.pi/2) * thorn_width,
+                       y - math.sin(angle + math.pi/2) * thorn_width)]
+        right_curve = [(x + math.cos(angle + math.pi/2) * thorn_width,
+                        y + math.sin(angle + math.pi/2) * thorn_width)]
+
+        # Sharp point
+        tip_x = x + math.cos(angle) * thorn_length
+        tip_y = y + math.sin(angle) * thorn_length
+        left_curve.append((tip_x, tip_y))
+        right_curve.append((tip_x, tip_y))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_catkin(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a hanging catkin."""
+        # Catkins hang down
+        catkin_angle = math.pi / 2 + self.vsk.random(-0.3, 0.3)
+        catkin_length = size * self.vsk.random(1.5, 2.5)
+        segment_count = int(self.vsk.random(3, 6))
+
+        curr_x, curr_y = x, y
+        for i in range(segment_count):
+            t = i / segment_count
+            seg_size = size * 0.25 * (1 - t * 0.3)
+            self.draw_occluding_circle(curr_x, curr_y, seg_size)
+            curr_x += math.cos(catkin_angle) * seg_size * 1.5
+            curr_y += math.sin(catkin_angle) * seg_size * 1.5
 
     def _draw_curved_branch(self, x1: float, y1: float, x2: float, y2: float,
                             width_start: float, width_end: float,
@@ -400,14 +648,17 @@ class FernDrawer(PlantDrawer):
 
     def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
         """Draw a fern. detail = number of main fronds."""
+        # Choose pinnule type for this fern: 0=line, 1=rounded, 2=pointed, 3=lobed, 4=curled
+        pinnule_type = int(self.vsk.random(0, 5))
         num_fronds = max(2, detail)
         for i in range(num_fronds):
             spread = (i - (num_fronds - 1) / 2) / max(1, num_fronds - 1)
             frond_angle = -math.pi / 2 + spread * 0.8 + angle * 0.3 + self.wind * 0.3
             frond_length = size * self.vsk.random(0.7, 1.0)
-            self._draw_frond(x, y, frond_angle, frond_length, self.stem_width * size)
+            self._draw_frond(x, y, frond_angle, frond_length, self.stem_width * size, pinnule_type)
 
-    def _draw_frond(self, x: float, y: float, angle: float, length: float, width: float) -> None:
+    def _draw_frond(self, x: float, y: float, angle: float, length: float, width: float,
+                    pinnule_type: int = 0) -> None:
         """Draw a single fern frond with pinnae (leaflets)."""
         steps = 10
         curve_strength = 0.6 + self.wind * 0.3
@@ -430,25 +681,41 @@ class FernDrawer(PlantDrawer):
 
             for side in [-1, 1]:
                 pinna_angle = current_angle + side * (math.pi / 2.5 + self.vsk.random(-0.1, 0.1))
-                self._draw_pinna(px, py, pinna_angle, pinna_size, int(3 + (1 - t) * 2))
+                self._draw_pinna(px, py, pinna_angle, pinna_size, int(3 + (1 - t) * 2), pinnule_type)
 
         self._draw_rachis_path(rachis_points, width)
 
-    def _draw_pinna(self, x: float, y: float, angle: float, size: float, sub_pinnae: int) -> None:
+    def _draw_pinna(self, x: float, y: float, angle: float, size: float, sub_pinnae: int,
+                    pinnule_type: int = 0) -> None:
         """Draw a pinna with optional sub-pinnae for fractal effect."""
         left_curve = [(x, y)]
         right_curve = [(x, y)]
-        steps = 5
+
+        # Randomize pinna shape
+        width_ratio = self.vsk.random(0.06, 0.12)
+        taper_rate = self.vsk.random(0.6, 0.95)
+        widest_at = self.vsk.random(0.15, 0.4)
+        left_factor = self.vsk.random(0.9, 1.1)
+        right_factor = self.vsk.random(0.9, 1.1)
+        steps = int(self.vsk.random(4, 7))
 
         for i in range(1, steps + 1):
             t = i / steps
             px = x + math.cos(angle) * size * t
             py = y + math.sin(angle) * size * t
-            w = size * 0.08 * (1 - t * 0.8)
+
+            # Variable width profile - widest near base, tapering to tip
+            if t < widest_at:
+                width_factor = t / widest_at
+            else:
+                width_factor = 1 - (t - widest_at) / (1 - widest_at) * taper_rate
+
+            w_left = size * width_ratio * width_factor * left_factor
+            w_right = size * width_ratio * width_factor * right_factor
 
             perp = angle + math.pi / 2
-            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
-            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+            left_curve.append((px + math.cos(perp) * w_left, py + math.sin(perp) * w_left))
+            right_curve.append((px - math.cos(perp) * w_right, py - math.sin(perp) * w_right))
 
         self.draw_occluding_shape_from_curves(left_curve, right_curve)
 
@@ -460,14 +727,126 @@ class FernDrawer(PlantDrawer):
                 for side in [-1, 1]:
                     sub_angle = angle + side * math.pi / 3
                     sub_size = size * 0.3
-                    self._draw_simple_pinnule(spx, spy, sub_angle, sub_size)
+                    self._draw_simple_pinnule(spx, spy, sub_angle, sub_size, pinnule_type)
 
-    def _draw_simple_pinnule(self, x: float, y: float, angle: float, size: float) -> None:
-        """Draw a simple small leaflet."""
-        end_x = x + math.cos(angle) * size
-        end_y = y + math.sin(angle) * size
-        self.vsk.stroke(1)
-        self.vsk.line(x, y, end_x, end_y)
+    def _draw_simple_pinnule(self, x: float, y: float, angle: float, size: float,
+                             pinnule_type: int = 0) -> None:
+        """Draw a simple small leaflet with variable type."""
+        if pinnule_type == 1:  # Rounded leaflet
+            self._draw_rounded_pinnule(x, y, angle, size)
+        elif pinnule_type == 2:  # Pointed leaflet
+            self._draw_pointed_pinnule(x, y, angle, size)
+        elif pinnule_type == 3:  # Lobed leaflet
+            self._draw_lobed_pinnule(x, y, angle, size)
+        elif pinnule_type == 4:  # Curled/fiddle head style
+            self._draw_curled_pinnule(x, y, angle, size)
+        else:  # Simple line (default)
+            end_x = x + math.cos(angle) * size
+            end_y = y + math.sin(angle) * size
+            self.vsk.stroke(1)
+            self.vsk.line(x, y, end_x, end_y)
+
+    def _draw_rounded_pinnule(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a rounded leaflet."""
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+        width = size * self.vsk.random(0.25, 0.4)
+
+        for i in range(1, 5):
+            t = i / 4
+            px = x + math.cos(angle) * size * t
+            py = y + math.sin(angle) * size * t
+            w = width * math.sqrt(math.sin(t * math.pi))  # Rounder profile
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_pointed_pinnule(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a pointed leaflet."""
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+        width = size * self.vsk.random(0.15, 0.25)
+        widest_at = self.vsk.random(0.2, 0.35)
+
+        for i in range(1, 6):
+            t = i / 5
+            px = x + math.cos(angle) * size * t
+            py = y + math.sin(angle) * size * t
+
+            if t < widest_at:
+                w = width * (t / widest_at)
+            else:
+                w = width * ((1 - t) / (1 - widest_at)) ** 1.5
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_lobed_pinnule(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a lobed leaflet with wavy edges."""
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+        base_width = size * self.vsk.random(0.2, 0.3)
+        lobe_count = int(self.vsk.random(2, 4))
+
+        for i in range(1, 7):
+            t = i / 6
+            px = x + math.cos(angle) * size * t
+            py = y + math.sin(angle) * size * t
+
+            # Base width with lobes
+            lobe_factor = 1 + 0.3 * math.sin(t * lobe_count * math.pi * 2)
+            w = base_width * math.sin(t * math.pi) * lobe_factor
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_curled_pinnule(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a curled/spiral fiddlehead-style pinnule."""
+        curl_tightness = self.vsk.random(0.8, 1.5)
+        steps = 8
+        points = [(x, y)]
+
+        curr_x, curr_y = x, y
+        curr_angle = angle
+        for i in range(1, steps + 1):
+            t = i / steps
+            # Curl inward as we go
+            curr_angle += curl_tightness * t * 0.4
+            seg_len = size / steps * (1 - t * 0.3)
+            curr_x += math.cos(curr_angle) * seg_len
+            curr_y += math.sin(curr_angle) * seg_len
+            points.append((curr_x, curr_y))
+
+        # Draw as a thin tapered shape
+        left_curve = []
+        right_curve = []
+        for i, (px, py) in enumerate(points):
+            t = i / (len(points) - 1)
+            w = size * 0.06 * (1 - t * 0.8)
+
+            if i < len(points) - 1:
+                dx = points[i + 1][0] - px
+                dy = points[i + 1][1] - py
+            else:
+                dx = px - points[i - 1][0]
+                dy = py - points[i - 1][1]
+
+            ln = math.sqrt(dx * dx + dy * dy) + 0.001
+            nx, ny = -dy / ln, dx / ln
+
+            left_curve.append((px + nx * w, py + ny * w))
+            right_curve.append((px - nx * w, py - ny * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
 
     def _draw_rachis_path(self, points: List[Tuple[float, float]], width: float) -> None:
         """Draw the main rachis as a tapered shape."""
@@ -503,11 +882,13 @@ class VineDrawer(PlantDrawer):
 
     def draw(self, x: float, y: float, size: float, angle: float, detail: int) -> None:
         """Draw a vine. detail = branching depth."""
+        # Choose leaf type for this vine: 0=simple, 1=heart, 2=lobed, 3=tendril, 4=compound
+        leaf_type = int(self.vsk.random(0, 5))
         vine_angle = -math.pi / 2 + angle * 0.4 + self.wind * 0.3 + self.vsk.random(-0.2, 0.2)
-        self._draw_vine_segment(x, y, vine_angle, size * 1.8, detail, self.stem_width * size)
+        self._draw_vine_segment(x, y, vine_angle, size * 1.8, detail, self.stem_width * size, leaf_type)
 
     def _draw_vine_segment(self, x: float, y: float, angle: float, length: float,
-                           depth: int, width: float) -> None:
+                           depth: int, width: float, leaf_type: int = 0) -> None:
         """Draw a smoothly winding vine segment."""
         if depth <= 0 or length < 0.1:
             return
@@ -547,14 +928,27 @@ class VineDrawer(PlantDrawer):
             bx, by, bangle, bwidth = branch_point
             branch_angle = bangle + self.vsk.random(-0.4, 0.4)
             branch_length = length * self.vsk.random(0.5, 0.7)
-            self._draw_vine_segment(bx, by, branch_angle, branch_length, depth - 1, bwidth * 0.7)
+            self._draw_vine_segment(bx, by, branch_angle, branch_length, depth - 1, bwidth * 0.7, leaf_type)
 
-        # Draw small leaves
+        # Draw leaves/extremities along vine
         for i in range(3, len(points) - 1, 5):
             if self.vsk.random(0, 1) > 0.4:
                 lx, ly = points[i]
                 leaf_angle = curr_angle + self.vsk.random(-1.0, 1.0)
-                self._draw_small_leaf(lx, ly, leaf_angle, length * 0.05)
+                self._draw_vine_extremity(lx, ly, leaf_angle, length * 0.05, leaf_type)
+
+    def _draw_vine_extremity(self, x: float, y: float, angle: float, size: float, leaf_type: int) -> None:
+        """Draw different types of vine leaf/extremity."""
+        if leaf_type == 1:  # Heart-shaped leaf
+            self._draw_heart_leaf(x, y, angle, size)
+        elif leaf_type == 2:  # Lobed/maple-like leaf
+            self._draw_lobed_leaf(x, y, angle, size)
+        elif leaf_type == 3:  # Tendril/spiral
+            self._draw_tendril(x, y, angle, size)
+        elif leaf_type == 4:  # Compound leaf (multiple leaflets)
+            self._draw_compound_leaf(x, y, angle, size)
+        else:  # Simple oval leaf (default)
+            self._draw_small_leaf(x, y, angle, size)
 
     def _draw_vine_path(self, points: List[Tuple[float, float]], width: float) -> None:
         """Draw vine as smoothly tapered shape."""
@@ -584,15 +978,169 @@ class VineDrawer(PlantDrawer):
         self.draw_occluding_shape_from_curves(left_curve, right_curve)
 
     def _draw_small_leaf(self, x: float, y: float, angle: float, size: float) -> None:
-        """Draw a small leaf."""
+        """Draw a small leaf with variable shape."""
         left_curve = [(x, y)]
         right_curve = [(x, y)]
 
-        for i in range(1, 5):
-            t = i / 4
-            w = size * 0.35 * math.sin(t * math.pi)
+        # Randomize leaf characteristics
+        width_ratio = self.vsk.random(0.25, 0.5)
+        widest_point = self.vsk.random(0.3, 0.6)
+        pointedness = self.vsk.random(0.8, 2.0)
+        # Slight asymmetry
+        left_factor = self.vsk.random(0.85, 1.15)
+        right_factor = self.vsk.random(0.85, 1.15)
+        # Number of steps (affects smoothness/resolution)
+        steps = int(self.vsk.random(4, 7))
+
+        for i in range(1, steps + 1):
+            t = i / steps
+
+            # Variable width profile
+            if t < widest_point:
+                width_factor = (t / widest_point) ** (1 / pointedness)
+            else:
+                width_factor = ((1 - t) / (1 - widest_point)) ** pointedness
+
+            w_left = size * width_ratio * width_factor * left_factor
+            w_right = size * width_ratio * width_factor * right_factor
+
             px = x + math.cos(angle) * size * t
             py = y + math.sin(angle) * size * t
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w_left, py + math.sin(perp) * w_left))
+            right_curve.append((px - math.cos(perp) * w_right, py - math.sin(perp) * w_right))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_heart_leaf(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a heart-shaped leaf."""
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+        width = size * self.vsk.random(0.4, 0.6)
+        # Heart indent at base
+        indent = self.vsk.random(0.1, 0.2)
+
+        for i in range(1, 7):
+            t = i / 6
+            px = x + math.cos(angle) * size * t
+            py = y + math.sin(angle) * size * t
+
+            # Heart shape: wide at base with indent, narrowing to point
+            if t < 0.15:
+                w = width * t / 0.15 * (1 - indent)
+            elif t < 0.4:
+                w = width * (1 - indent + indent * (t - 0.15) / 0.25)
+            else:
+                w = width * ((1 - t) / 0.6) ** 0.8
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_lobed_leaf(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a lobed/maple-like leaf."""
+        lobe_count = int(self.vsk.random(3, 6))
+        base_width = size * self.vsk.random(0.3, 0.45)
+        lobe_depth = self.vsk.random(0.3, 0.5)
+
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+
+        for i in range(1, 9):
+            t = i / 8
+            px = x + math.cos(angle) * size * t
+            py = y + math.sin(angle) * size * t
+
+            # Create lobes
+            lobe_factor = 1 + lobe_depth * math.sin(t * lobe_count * math.pi)
+            base_profile = math.sin(t * math.pi)
+            w = base_width * base_profile * lobe_factor
+
+            perp = angle + math.pi / 2
+            left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
+            right_curve.append((px - math.cos(perp) * w, py - math.sin(perp) * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_tendril(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a curling tendril."""
+        curl_dir = 1 if self.vsk.random(0, 1) > 0.5 else -1
+        curl_tightness = self.vsk.random(1.5, 3.0)
+        steps = 12
+
+        points = [(x, y)]
+        curr_x, curr_y = x, y
+        curr_angle = angle
+
+        for i in range(1, steps + 1):
+            t = i / steps
+            # Tighten curl as we go
+            curr_angle += curl_dir * curl_tightness * t * 0.3
+            seg_len = size / steps * (1 - t * 0.4)
+            curr_x += math.cos(curr_angle) * seg_len
+            curr_y += math.sin(curr_angle) * seg_len
+            points.append((curr_x, curr_y))
+
+        # Draw as thin tapered line
+        left_curve = []
+        right_curve = []
+        for i, (px, py) in enumerate(points):
+            t = i / (len(points) - 1)
+            w = size * 0.04 * (1 - t * 0.9)
+
+            if i < len(points) - 1:
+                dx = points[i + 1][0] - px
+                dy = points[i + 1][1] - py
+            else:
+                dx = px - points[i - 1][0]
+                dy = py - points[i - 1][1]
+
+            ln = math.sqrt(dx * dx + dy * dy) + 0.001
+            nx, ny = -dy / ln, dx / ln
+
+            left_curve.append((px + nx * w, py + ny * w))
+            right_curve.append((px - nx * w, py - ny * w))
+
+        self.draw_occluding_shape_from_curves(left_curve, right_curve)
+
+    def _draw_compound_leaf(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a compound leaf with multiple small leaflets."""
+        leaflet_count = int(self.vsk.random(3, 6))
+        leaflet_size = size * self.vsk.random(0.35, 0.5)
+
+        # Draw central stem
+        stem_end_x = x + math.cos(angle) * size * 0.8
+        stem_end_y = y + math.sin(angle) * size * 0.8
+        self.vsk.stroke(1)
+        self.vsk.line(x, y, stem_end_x, stem_end_y)
+
+        # Draw leaflets along stem
+        for i in range(leaflet_count):
+            t = (i + 1) / (leaflet_count + 1)
+            lx = x + math.cos(angle) * size * 0.8 * t
+            ly = y + math.sin(angle) * size * 0.8 * t
+
+            for side in [-1, 1]:
+                leaflet_angle = angle + side * (math.pi / 3 + self.vsk.random(-0.2, 0.2))
+                self._draw_simple_leaflet(lx, ly, leaflet_angle, leaflet_size * (0.6 + t * 0.4))
+
+        # Terminal leaflet
+        self._draw_simple_leaflet(stem_end_x, stem_end_y, angle, leaflet_size)
+
+    def _draw_simple_leaflet(self, x: float, y: float, angle: float, size: float) -> None:
+        """Draw a simple small leaflet for compound leaves."""
+        left_curve = [(x, y)]
+        right_curve = [(x, y)]
+        width = size * 0.35
+
+        for i in range(1, 4):
+            t = i / 3
+            px = x + math.cos(angle) * size * t
+            py = y + math.sin(angle) * size * t
+            w = width * math.sin(t * math.pi)
 
             perp = angle + math.pi / 2
             left_curve.append((px + math.cos(perp) * w, py + math.sin(perp) * w))
